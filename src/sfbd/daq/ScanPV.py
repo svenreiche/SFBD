@@ -2,7 +2,7 @@ import logging
 import socket
 import datetime
 from threading import Thread
-
+import time
 import numpy as np
 
 from PyQt5.QtCore import QObject, pyqtSignal
@@ -41,6 +41,7 @@ class ScanPV(QObject):
         self.pvchannels = []
         self.doAbort = False
         self.maxRetries = 1000
+        self.aqrate=0.01  #  10 ms second for 100 Hz reading
         self.ncount = 0
         self.data = {}
 
@@ -62,6 +63,7 @@ class ScanPV(QObject):
         self.pvchannels.clear()
         # check whether the requested channels are available
         self.ncount = nsample
+        self.aqrate = 1./freq
         self.data.clear()
         ndim = [nsample]
 
@@ -78,51 +80,50 @@ class ScanPV(QObject):
         # do a quick reading to get data size
         for i, pv in enumerate(self.pvchannels):
             val = pv.get(timeout=0.2)
-            if np.isscalar(val[i]):
-                self.data[channel] = np.ndarray(ndim, dtype=np.float)
-                self.data[channel][0] = val[i]
+            if np.isscalar(val):
+                self.data[pv.pvname] = np.ndarray(ndim, dtype=np.float)
             else:
-                self.data[channel] = np.ndarray(ndim + [len(val[i])], dtype=np.float)
-                self.data[channel][0, :] = val[i]
-
-        if nsample == 1:
-            return
-
-    #        self.doAbort = False
-    #        Thread(target=self.runner).start()
+                self.data[pv.pvname] = np.ndarray(ndim + [len(val)], dtype=np.float)
+        self.doAbort = False
+        Thread(target=self.runner).start()
 
     def runner(self):
         iret = 0
-        nret = 1000
+        nret = self.maxRetries
         icount = 0
         isignal = int(np.round(self.ncount * 0.1))
+
         self.siginc.emit(0, self.ncount)
-        hasStream = False
-        with source(channels=self.bschannels) as stream:
-            hasStream = True
-            while icount < self.ncount and not self.doAbort:
-                msg = stream.receive()  # read BS
-                valid = True
-                for chn in self.bschannels:  # check that all requested data are valid
-                    if msg.data.data[chn['name']].value is None:
-                        iret += 1
-                        valid = False
-                        if iret > nret:
-                            self.doStop = True
-                if not valid:
-                    continue
-                iret = 0  # resect the counter for retries one a valid reading has occured
-                # save the data
-                self.data['Shot:ID'][icount] = msg.data.pulse_id
-                for i, ele in enumerate(self.bschannels):
-                    if len(self.data[ele['name']].shape) > 1:
-                        self.data[ele['name']][icount, :] = np.array(msg.data.data[ele['name']].value)
-                    else:
-                        self.data[ele['name']][icount] = msg.data.data[ele['name']].value
-                icount += 1
-                if (icount % isignal) == 0:
-                    self.siginc.emit(icount, self.ncount)
-        if self.doAbort or not hasStream:
+        self.logger.info('Scan Thread started')
+
+        while icount < self.ncount and not self.doAbort:
+            msg = [pv.get(timeout=0.1) for pv in self.pvchannels]
+            valid = True
+            for chn in msg:
+                if chn is None:
+                    iret += 1
+                    valid = False
+                    if iret > nret:
+                        self.doAbort = True
+                    break
+            if not valid:
+                time.sleep(self.aqrate)
+                continue
+
+            # dataset is valid
+            iret = 0  # reset counter of retries
+            for i, val in enumerate(msg):
+                if np.isscalar(val):
+                    self.data[self.pvchannels[i].pvname][icount] = val
+                else:
+                    self.data[self.pvchannels[i].pvname][icount, :] = val
+
+            icount += 1
+            if (icount % isignal) == 0:
+                self.siginc.emit(icount, self.ncount)
+            time.sleep(self.aqrate)
+        if self.doAbort:
             self.sigterm.emit(-1)
         else:
             self.sigterm.emit(0)
+        self.logger.info('Scan Thread is exiting...')
