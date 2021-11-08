@@ -1,6 +1,8 @@
 import sfbd.interface.snapshot as snap
+import time
 
 sn = snap.snapshot('test')
-sn.save('test_1')
+time.sleep(5)
+sn.save()
 
 

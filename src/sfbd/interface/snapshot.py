@@ -1,3 +1,4 @@
+import datetime
 from snapshot.ca_core import Snapshot
 
 class snapshot:
@@ -5,17 +6,25 @@ class snapshot:
         self.snap = None
         if not request:
             return
+        self.root = 'SFBD_'+request
         self.pathreq = '/sf/data/applications/SFBD/snapshot-config/'
-        self.pathroot = '/sf/data/applications/snapshot/SFBD'
-        self.snap = Snapshot(self.pathreq+request+'.req',{'Test':'Tres'})
+        self.pathsave = '/sf/data/applications/snapshot/'
+        self.snap = Snapshot(self.pathreq+self.root+'.req',{'Test':'Tres'})
         self.lastSaved = []   # files which have been saved already
 
-    def save(self,filebase):
+    def save(self):
         if self.snap is None:
-                return
-        file = self.pathroot+filebase+'.snap'
-        filelatest = self.pathroot+filebase+'_latest.snap'
-        self.snap.save_pvs(file,force=True,symlink_path=filelatest)
+                return None
+
+        datetag = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        file = self.pathsave+self.root+'_'+datetag+'.snap'
+        filel = self.pathsave+self.root+'_latest.snap'
+        sts, pvs_sts = self.snap.save_pvs(file,force=False,symlink_path=filel)
+        if 'ok' in sts.name:
+            self.lastSaved.append(file)
+            return file
+        return None
+
 
 
 
