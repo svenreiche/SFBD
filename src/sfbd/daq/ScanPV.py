@@ -75,7 +75,6 @@ class ScanPV(QObject):
                 self.pvchannels.append(pvchannels[i])
             else:
                 self.logger.warning('Channel %s cannot access by PV and will be excluded.' % pvchannels)
-                print('Cannot connect to PV:', pvchannels[i].pvname)
 
         # do a quick reading to get data size
         for i, pv in enumerate(self.pvchannels):
