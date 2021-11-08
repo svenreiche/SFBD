@@ -1,8 +1,10 @@
 import logging
 import socket
 import datetime
+from threading import Thread
 
 import numpy as np
+
 from PyQt5.QtCore import QObject, pyqtSignal
 
 # PSI libraries for bsread
@@ -63,7 +65,7 @@ class ScanBS(QObject):
                 return ele
         return None
 
-    def run(self, channels, nsample):
+    def run(self, channels=[], nsample=1):
         """
         Routine to launch a time recording of bsread channels. the function launches a thread for the actual measurement
         :param channels: list of channel names
@@ -123,7 +125,7 @@ class ScanBS(QObject):
                 iret = 0   # reset counter of retries
                 # save the data
                 self.data['Shot:ID'][icount] = msg.data.pulse_id
-                for i,e le in enumerate(self.bschannels):
+                for i, ele in enumerate(self.bschannels):
                     if len(self.data[ele['name']].shape) > 1:
                         self.data[ele['name']][icount, :] = np.array(msg.data.data[ele['name']].value)
                     else:
