@@ -1,8 +1,7 @@
-import sfbd.interface.snapshot as snap
-import time
+import sfbd.daq.ScanBS as Scan
 
-sn = snap.snapshot('test')
-time.sleep(5)
-sn.save()
+
+myscan=Scan.ScanBS()
+
 
 
