@@ -2,15 +2,18 @@ import datetime
 from snapshot.ca_core import Snapshot
 
 class snapshot:
-    def __init__(self, request=None):
+    def __init__(self):
         self.snap = None
-        if not request:
-            return
-        self.root = 'SFBD_'+request
-        self.pathreq = '/sf/data/applications/SFBD/snapshot-config/'
+        self.lastSaved=[]
+
+    def open(self,root,pathreq='/sf/data/applications/SFBD/snapshot-config/'):
+
+        self.root = 'SFBD_'+root
+        self.pathreq = pathreq
         self.pathsave = '/sf/data/applications/snapshot/'
         self.snap = Snapshot(self.pathreq+self.root+'.req',{'Test':'Tres'})
-        self.lastSaved = []   # files which have been saved already
+        self.lastSaved.clear()
+
 
     def save(self):
         if self.snap is None:
