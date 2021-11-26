@@ -13,6 +13,7 @@ class snapshot:
     def openRequestFile(self,filename):
         self.filename = filename
         self.rootname=self.filename.split('/')[-1]
+        print(self.filename,self.rootname)
         req_file = SnapshotReqFile(self.filename)
         pvs_list = req_file.read()
         print(pvs_list)
