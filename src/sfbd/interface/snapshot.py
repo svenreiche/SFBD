@@ -3,13 +3,9 @@ from snapshot.ca_core import Snapshot
 
 class snapshot:
     def __init__(self,filename=None,savepath='/sf/data/applications/snapshot/'):
-
-        print('Init snapshot')
-        print(filename)
-        print(savepath)
         self.filename = filename
         self.savepath = savepath
-        if not self.filename:
+        if self.filename:
             self.openRequestFile(self.filename)
 
 
