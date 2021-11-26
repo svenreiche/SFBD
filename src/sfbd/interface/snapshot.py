@@ -15,7 +15,8 @@ class snapshot:
         print(self.filename,self.rootname)
         req_file = SnapshotReqFile(self.filename)
         pvs_list = req_file.read()
-        print(pvs_list)
+        for ele in pvs_list:
+            print(ele)
 
 
     def open(self,root,pathreq='/sf/data/applications/SFBD/snapshot-config/'):
