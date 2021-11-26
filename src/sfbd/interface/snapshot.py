@@ -1,5 +1,5 @@
 import datetime
-from snapshot.ca_core import Snapshot
+from snapshot.ca_core import Snapshot, SnapshotReqFile
 
 class snapshot:
     def __init__(self,filename=None,savepath='/sf/data/applications/snapshot/'):
