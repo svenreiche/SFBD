@@ -24,7 +24,7 @@ class snapshot:
         self.pathreq = pathreq
         if not self.pathreq[-1] == '/':
             self.pathreq += '/'
-        self.pathsave =
+        self.pathsave = 'test'
         self.snap = Snapshot(self.pathreq+self.root+'.req',{'Test':'Tres'})
         self.lastSaved.clear()
 
