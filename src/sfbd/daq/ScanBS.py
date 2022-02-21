@@ -24,7 +24,7 @@ class ScanBS(QObject):
 
         QObject.__init__(self)
 
-        self.program = 'ScanBS'
+        self.program = 'SFBD/ScanBS'
         self.version = '1.0.1'
 
         if logger == None:
@@ -43,8 +43,11 @@ class ScanBS(QObject):
         self.bschannels=[]
         self.doAbort = False
         self.maxRetries = 1000
-        self.ncount = 0
+        self.ncount = 0   # total number of measurements
+        self.nsample = 0  # number of samples
+        self.nstep = 0    # number of steps (0 = time recording)
         self.data = {}
+        self.actuator = None
 
     # toggeling flag to abort run
     def abort(self):
@@ -53,6 +56,8 @@ class ScanBS(QObject):
         :return: None
         """
         self.doAbort = True
+        if not self.actuator is None:
+            self.actuator.abort()
 
     def isBSChannel(self, channel):
         """
@@ -65,24 +70,37 @@ class ScanBS(QObject):
                 return ele
         return None
 
-    def run(self, channels=[], nsample=1):
+    def run(self, channels=[], nsample=1, actuator=None):
         """
         Routine to launch a time recording of bsread channels. the function launches a thread for the actual measurement
         :param channels: list of channel names
         :param nsample: number of samples
+        :param actuator: actuator class. If None then no actuator is used (time recording)
         :return: none
         """
+
         self.bschannels.clear()
+        self.actuator = actuator
         # check whether the requested channels are available
         for channel in channels:
             bschannel = self.isBSChannel(channel)
             if bschannel is not None:     # if channel does notexist it is excluded
                 self.bschannels.append(bschannel)
             else:
-                self.logger.warning('Channel %s not supported by BSREAD and will be excluded.' % channel)
-        # allocate memory to hold information
+                self.logger.warning('Channel %s not supported by BSREAD and will be excluded.' % channel)        # allocate memory to hold information
+
+        self.nstep = 0
+        if not self.actuator:
+            if self.actuator.isActuator and self.actuator.status == 0:
+                self.nstep = self.actuator.nsteps
+        self.nsample=nsample
+
         self.ncount = nsample
-        ndim = [nsample]
+        ndim = [self.sample]    # time recording
+        if self.nstep > 0:
+            self.ncount=self.nstep*self.nsample
+            ndim=[self.nstep,self.sample]  # scan
+
         self.data.clear()
         self.data['Shot:ID'] = np.ndarray(ndim, dtype='uint64')
         for ele in self.bschannels:
@@ -93,8 +111,19 @@ class ScanBS(QObject):
         # clear flags for the run
         self.doAbort = False
         # start the thread
-        Thread(target=self.runner).start()
+        Thread(target=self.runthread).start()
 
+    def runthread(self):
+        """
+        Wrapper function to catch the erro rif a stream cannot be established
+        :return:
+        """
+        try:
+            self.runner()
+        except:
+            self.logger.error("Cannot establish BSRead stream")
+            self.abort()           # stop also thread of actuator if defined
+            self.sigterm.emit(-2)  # signal for indicating an error/abort etc
 
     def runner(self):
         """

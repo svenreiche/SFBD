@@ -10,14 +10,14 @@ class PVAccess:
     """
     def __init__(self, logger=None):
 
-        self.program = 'PVAccess'
+        self.program = 'SFBD/PVAccess'
         self.version = '1.0.1'
 
         if logger == None:
             logging.basicConfig(level=logging.INFO,
                                 format='%(levelname)-8s %(message)s')
             self.logger = logging.getLogger(self.program)
-            self.logger.info('PV Scan started at %s' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            self.logger.info('PVAccess started at %s' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
             self.logger.info('Version: %s ' % self.version)
             self.logger.info('Host: %s' % socket.gethostname())
         else:
@@ -32,18 +32,25 @@ class PVAccess:
         """
         function to establish connection to the PV and store its values
         :param channels: list of PV names
-        :return: None
+        :return: success (True/False)
         """
         self.pvchannels.clear()
         pvchannels = [PV(pv) for pv in channels]
         con = [pv.wait_for_connection(timeout=0.5) for pv in pvchannels]
+        status = True
         for i, val in enumerate(con):
             if val == True:
                 self.pvchannels.append(pvchannels[i])
             else:
                 self.logger.warning('Channel %s cannot access by PV and will be excluded.' % pvchannels)
+                status = False
+
+        if status is False:
+            self.logger.error('Cannot connect to requested channels. Abort PVAccess')
+            return status
         self.logger.info('Initial acquisition of Pv channels for restoring them later')
         self.refval = [pv.get() for pv in self.pvchannels]
+        return status
 
     def restore(self):
         """
