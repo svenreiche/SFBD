@@ -10,7 +10,7 @@ class Macro:
         self.plot = []
         self.preaction={}
         self.actuator={}
-        self.path = '/sf/data/applications/BD-pyREALTA/macro'
+        self.path = '/sf/data/applications/BD-MacroManager/macros'
         self.filename = None
         self.type = 'Time Recording'
         self.nsample = 1000
@@ -20,7 +20,7 @@ class Macro:
         self.name = 'Generic'
         self.snap = 'default'
         self.postprocessor = 'None'
-        self.EpicsSensor = False
+        self.EpicsSensor = []
         self.new()
 
     def new(self):
@@ -36,7 +36,7 @@ class Macro:
         self.name = 'Generic'
         self.snap = 'default'
         self.postprocessor = 'None'
-        self.EpicsSensor = False
+        self.EpicsSensor.clear()
         self.filename = None
 
     def save(self,filename):
@@ -67,6 +67,9 @@ class Macro:
             self.type=macro['Type']
             if 'Actuator' in macro.keys():
                 self.actuator = macro['Actuator']
+                for key in self.actuator:
+                    if not 'Relative' in self.actuator[key].keys():
+                        self.actuator[key]['Relative']=False
             self.nsample=macro['Sample']
             if 'Steps' in macro.keys():
                 self.nstep = macro['Steps']
@@ -89,6 +92,64 @@ class Macro:
                 self.preaction.clear()
             if 'Epics' in macro.keys():
                 self.EpicsSensor = macro['Epics']
+
+
+#-----------------------------------
+# manipulating elements in the macro
+    def addActuators(self,channels):
+        for channel in channels:
+            if not channel in self.actuator.keys():
+                self.actuator[channel]={'Start':0,'End':0,'Readback':'','Tolerance':0,'Relative':False}
+
+    def updateActuators(self,channel,val1,val2,val3,val4,val5):
+        if channel in self.actuator.keys():
+            self.actuator[channel] = {'Start':val1,'End':val2,'Readback':val3,'Tolerance':val4,'Relative':val5}
+
+    def removeActuators(self,channel):
+        if channel in self.actuator.keys():
+            del self.actuator[channel]
         
+    def addPreaction(self,channels):
+        for channel in channels:
+            if not channel in self.preaction.keys():
+                self.preaction[channel]=0.
+
+    def removePreaction(self,channel):
+        if channel in self.preaction.keys():
+            del self.preaction[channel]
+
+    def updatePreaction(self,channel,val):
+        if channel in self.preaction.keys():
+            self.preaction[channel] = val
+
+    def addBSChannels(self,channels):
+        for channel in channels:
+            if not channel in self.sensor:
+                self.sensor.append(channel)
+
+    def removeBSChannels(self,channels):
+        for channel in channels:
+            if channel in self.sensor:
+                self.sensor.remove(channel)
+
+    def addEPICSChannels(self,channels):
+        for channel in channels:
+            if not channel in self.EpicsSensor:
+                self.EpicsSensor.append(channel)
+
+    def removeEPICSChannels(self,channels):
+        for channel in channels:
+            if channel in self.EpicsSensor:
+                self.EpicsSensor.remove(channel)
+
+    def addLivePlot(self,channels):
+        for channel in channels:
+            if not channel in self.plot:
+                self.plot.append(channel)
+
+    def removeLivePlot(self,channels):
+        for channel in channels:
+            if channel in self.plot:
+                self.plot.remove(channel)
 
 #
