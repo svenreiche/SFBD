@@ -13,7 +13,7 @@ class ActuatorPV:
     """
     def __init__(self, logger=None):
 
-        self.program = 'SFBD/ActuatorPV
+        self.program = 'SFBD/ActuatorPV'
         self.version = '1.0.1'
 
         if logger == None:
