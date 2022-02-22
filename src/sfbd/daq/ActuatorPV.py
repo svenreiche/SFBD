@@ -1,3 +1,4 @@
+import sys
 import logging
 import socket
 import datetime
@@ -5,7 +6,9 @@ import time
 from threading import Thread
 
 from epics import PV
-import PVAccess
+
+sys.path.append('/sf/bd/packages/SFBD/src')
+import sfbd.daq.PVAccess as PVAccess
 
 class ActuatorPV:
     """
@@ -33,10 +36,17 @@ class ActuatorPV:
             # get list of available channels for BSRead
         self.pvchannels = []
         self.actuators={}
-        self.backup=PVAccess()
+        self.backup=PVAccess.PVAccess()
         self.settle=0.
         self.timeout=1.
         self.hasTimeout = False
+
+    def currentValue(self,actPV):
+        pv=PV(actPV)
+        con = pv.wait_for_connection(timeout=0.5)
+        if not con:
+            return None
+        return pv.get()
 
     def abort(self):
         """
@@ -62,7 +72,7 @@ class ActuatorPV:
         :param config: dictionary with setvalues, readback and tolerance
         :return: success (True/False)
         """
-        if len(pvchannel) == 0:
+        if len(pvchannels) == 0:
             self.isActuator = False
             return True
 

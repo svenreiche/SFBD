@@ -89,17 +89,19 @@ class ScanBS(QObject):
             else:
                 self.logger.warning('Channel %s not supported by BSREAD and will be excluded.' % channel)        # allocate memory to hold information
 
+        self.nsample=nsample  # time recording
         self.nstep = 0
-        if not self.actuator:
+        self.ncount=self.nsample
+        ndim=[self.nsample]
+        if self.actuator:    # scan
             if self.actuator.isActuator and self.actuator.status == 0:
                 self.nstep = self.actuator.nsteps
-        self.nsample=nsample
-
-        self.ncount = nsample
-        ndim = [self.sample]    # time recording
-        if self.nstep > 0:
-            self.ncount=self.nstep*self.nsample
-            ndim=[self.nstep,self.sample]  # scan
+                self.ncount=self.nstep*self.nsample
+                ndim=[self.nstep,self.nsample]  
+        if len(ndim) < 2:
+            self.logger.info('Data allocation for time recording')
+        else:
+            self.logger.info('Data allocation for scan')
 
         self.data.clear()
         self.data['Shot:ID'] = np.ndarray(ndim, dtype='uint64')
@@ -123,7 +125,7 @@ class ScanBS(QObject):
         except:
             self.logger.error("Cannot establish BSRead stream")
             self.abort()           # stop also thread of actuator if defined
-            self.sigterm.emit(-2)  # signal for indicating an error/abort etc
+            self.sigterm.emit(-2)  # signal for indicating for a failed stream request
 
     def runner(self):
         """
@@ -133,9 +135,13 @@ class ScanBS(QObject):
         iret = 0      # count for number of retries
         nret = self.maxRetries
         icount = 0
+        istep = 0
+        isample = 0
+
         isignal = int(np.round(self.ncount * 0.1))  # estimate for 10% of measurement done
         self.siginc.emit(0, self.ncount)    # emit initial signal for start of measurement
         self.logger.info('Scan Thread started')
+
         with source(channels=self.bschannels) as stream:
             while icount < self.ncount and not self.doAbort:
                 msg = stream.receive()  # read BS
@@ -144,26 +150,40 @@ class ScanBS(QObject):
                     if msg.data.data[chn['name']].value is None:
                         iret += 1
                         valid = False
-                        if iret > nret:
+                        if iret > self.maxRetries:
                             self.doAbort = True
-                        break
+                            self.sigterm.emit(-4)  # maximum number of tries exceeded
+                            return
                 if not valid:
                     continue
 
                 # dataset is valid
                 iret = 0   # reset counter of retries
-                # save the data
-                self.data['Shot:ID'][icount] = msg.data.pulse_id
-                for i, ele in enumerate(self.bschannels):
-                    if len(self.data[ele['name']].shape) > 1:
-                        self.data[ele['name']][icount, :] = np.array(msg.data.data[ele['name']].value)
-                    else:
-                        self.data[ele['name']][icount] = msg.data.data[ele['name']].value
-                icount += 1
+                # save the data for time recording or scan
+                if self.actuator:
+                    self.data['Shot:ID'][istep,isample] = msg.data.pulse_id
+                    for i, ele in enumerate(self.bschannels):
+                        if len(self.data[ele['name']].shape) > 2:
+                            self.data[ele['name']][istep,isample, :] = np.array(msg.data.data[ele['name']].value)
+                        else:
+                            self.data[ele['name']][istep,isample] = msg.data.data[ele['name']].value
+                else:
+                    self.data['Shot:ID'][isample] = msg.data.pulse_id
+                    for i, ele in enumerate(self.bschannels):
+                        if len(self.data[ele['name']].shape) > 1:
+                            self.data[ele['name']][isample, :] = np.array(msg.data.data[ele['name']].value)
+                        else:
+                            self.data[ele['name']][isample] = msg.data.data[ele['name']].value
+ 
+                icount  += 1
+                isample +=1
+                if (isample % self.nsample)==0:
+                    isample=0
+                    istep+=1
                 if (icount % isignal) == 0:
                     self.siginc.emit(icount, self.ncount)
         if self.doAbort:
-            self.sigterm.emit(-1)  # signal for indicating an error/abort etc
+            self.sigterm.emit(-1)  # signal for abort
         else:
             self.sigterm.emit(0)   # scan completed normally
         self.logger.info('Scan Thread is exiting...')
