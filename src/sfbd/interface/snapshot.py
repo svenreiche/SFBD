@@ -6,8 +6,9 @@ from snapshot.parser import parse_to_save_file, parse_from_save_file
 from epics import PV
 
 class snapshot:
-    def __init__(self,filename=None,savepath='/sf/data/applications/snapshot/'):
+    def __init__(self,filename=None,savepath='/sf/data/applications/snapshot/'):        
         self.filename = filename
+        print('Estbalishing snapshot with request file:',filename)
         self.savepath = savepath
         self.tolerance=0.0005  
         self.pvnames=[]
@@ -36,44 +37,38 @@ class snapshot:
         self.connectPVs()
         
     def connectPVs(self):
-        self.pvs=[PV(pv) for pv in self.pvnames]
-        con = [pv.wait_for_connection(timeout=0.5) for pv in self.pvs]
+        self.pvs=[PV(pv,auto_monitor=False) for pv in self.pvnames]
+        con = [pv.wait_for_connection(timeout=1.5) for pv in self.pvs]
         for i,val in enumerate(con):
             if val is False:
                 print('Cannot connect to PV:', self.pvs[i].pvname)
-        self.mppvnames=[mp[0] for mp in self.machinepar]
-        self.mppvs=[PV(mp[1]) for mp in self.machinepar]
-        con = [pv.wait_for_connection(timeout=0.5) for pv in self.mppvs]
+        self.mppvs=[PV(self.machinepar[key],auto_monitor=False) for key in self.machinepar.keys()]
+        con = [pv.wait_for_connection(timeout=1.5) for pv in self.mppvs]
         for i,val in enumerate(con):
             if val is False:
-                print('Cannot connect to PV:', self.mppvs[i].pvname)
+                print('Cannot connect to mPV:', self.mppvs[i].pvname)
         
     def getSnapValues(self, force = True):
         values={}
-        for pv in self.pvs:
-            val = pv.get_with_metadata(timeout=0.1)        
-            if force is False and val["value"] is None:
-                return False
-            values[pv.pvname]={"raw_name":pv.pvname,"val":val["value"]}
-            if 'units' in val.keys():
-                values[pv.pvname]['egu']=val['units']
+        val =[pv.get(timeout=1.1,use_monitor=False) for pv in self.pvs]
+        for i,pv in enumerate(self.pvs):
+            if val[i] is None:
+                if force:
+                    continue
+                else:
+                    return False
             else:
-                values[pv.pvname]['egu']=None
-            if 'precision' in val.keys():
-                values[pv.pvname]['prec']=val['precision']
-            else:
-                values[pv.pvname]['prec']=None        
+                values[pv.pvname]={"raw_name":pv.pvname,"val":val[i],"EGU":pv.units,"prec":pv.precision}
         mvalues={}
-        for i in range(len(self.mppvnames)):
-            val = self.mppvs[i].get_with_metadata(timeout=0.1)        
-            if force is False and val["value"] is None:
-                return False            
-            tag={"value":val["value"]}
-            if 'units' in val.keys():
-                tag['units']=val['units']
-            if 'precision' in val.keys():
-                tag['precision']=val['precision']
-            mvalues[self.mppvnames[i]]=tag
+        val = [pv.get(timeout=1.1,use_monitor=False) for pv in self.mppvs]
+        for i,pv in enumerate(self.mppvs):
+            if val[i] is None:
+                if force:
+                    continue
+                else:
+                    return False 
+            else:
+                mvalues[pv.pvname]={"value":val[i],"units":pv.units,"precision":pv.precision}
         return values,mvalues
  
             
@@ -92,9 +87,16 @@ class snapshot:
         root = self.rootname.split('.req')[0]
         files = self.savepath+root+'_'+datetag+'.snap'
         filel = self.savepath+root+'_latest.snap'
+        
+       
+        # reshuffle from mval to keyword based machine values
+        mmval={}
+        for key in self.machinepar.keys():
+            if self.machinepar[key] in mval.keys():
+                mmval[key]=mval[self.machinepar[key]]
         # save file
         parse_to_save_file(val, files, macros=None, symlink_path=filel,
-                           comment=comment,labels=[],req_file_name=self.rootname,machine_params=mval)
+                           comment=comment,labels=[],req_file_name=self.rootname,machine_params=mmval)
         self.message = 'Snapshot saved to '+files
         return True
 

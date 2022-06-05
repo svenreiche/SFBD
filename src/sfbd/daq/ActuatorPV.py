@@ -4,8 +4,16 @@ import socket
 import datetime
 import time
 from threading import Thread
+import numpy as np
 
 from epics import PV
+
+#
+#  remove return in self.temrinate()
+#  uncomment setting of PV in self.setActuator()
+#  check timeout and settle time functionality
+#
+
 
 sys.path.append('/sf/bd/packages/SFBD/src')
 import sfbd.daq.PVAccess as PVAccess
@@ -34,19 +42,17 @@ class ActuatorPV:
         self.isActuator = False  # true if actuators are actually used.
         self.status = -1  # not initialized
             # get list of available channels for BSRead
-        self.pvchannels = []
+
+
         self.actuators={}
-        self.backup=PVAccess.PVAccess()
+        self.backup=PVAccess.PVAccess(self.logger)
+
         self.settle=0.
         self.timeout=1.
+        self.nsteps = 0
         self.hasTimeout = False
+        self.settime=1e12
 
-    def currentValue(self,actPV):
-        pv=PV(actPV)
-        con = pv.wait_for_connection(timeout=0.5)
-        if not con:
-            return None
-        return pv.get()
 
     def abort(self):
         """
@@ -55,71 +61,71 @@ class ActuatorPV:
         """
         self.doAbort=True
         self.terminate()
-
+        
     def terminate(self):
         """
         Set all PV channels to initial values
         :return: None
         """
         self.status=-1
-        if not self.isActuator:
+        print('terminating actuators')
+        if self.isActuator:
             self.backup.restore()
         
-    def init(self, pvchannels=[], config={},timeout=1.,settle=0.):
+    def init(self, actuator={},timeout=1.,settle=0,nsteps=0):
         """
         function to define the actuator channels and set-up the connection
-        :param channels: list of channels involved
-        :param config: dictionary with setvalues, readback and tolerance
+        :param actuator: dictionary to hold actuator definition
+        :param timeout: timeout in second
+        :param settle: settle time in second
+        :param nsteps: steps of actuators
         :return: success (True/False)
         """
-        if len(pvchannels) == 0:
+        if len(actuator.keys()) == 0:
             self.isActuator = False
+            self.nsteps=0
+            self.isteps=-1
             return True
 
-
+        self.actuators=actuator
         self.settle = settle
         self.timeout=timeout
-        self.pvchannels=pvchannels
+        self.nsteps=nsteps
 
-        if not self.backup.store(pvchannels):
+        # get backup of actuator
+        if not self.backup.store(self.actuators.keys()):
+            print('cannot read actuator;')
             return False
-        self.actuators.clear()
-        nsteps=-1
-        for i,pname in enumerate(self.pvchannels):
-            pv=self.backup.pvchannels[i]   # the connection has been already establish in PVaccess
-            if not pname in config.keys():
-                self.logger.error('Cannot find actuator definition for pv: %s' % pname)
-                return False
-            if 'val' not in config[pname].keys():
-                self.logger.error('Cannot find values for pv: %s' % pname)
-                return False
-            val = config[pname]['val']
-            nlen = len(val)
-            if nsteps < 0:
-                nsteps = nlen
-            elif not nlen == nsteps:
-                self.logger.error('Mismatch in step count for pv: %s' % pname)
-                return False
+
+        print('reading current actuator values')
+        for i,key in enumerate(self.actuators.keys()):
+            self.actuators[key]['PV']=self.backup.pvchannels[i]  
+            print('actuator:',key, ' with steps',self.nsteps)
+            val = np.linspace(self.actuators[key]['Start'],self.actuators[key]['End'],num=self.nsteps)
+            if 'Relative' in self.actuators[key].keys():
+                if self.actuators[key]['Relative']:
+                    val += self.backup.refval[i]
+            self.actuators[key]['val']=val
             pvrb = None
-            tol = 0
-            if  'readback' in config[pname].keys():
-                pvrb = PV(config[pname]['readback'])
-                con = pvrb.wait_for_connection(timeout=0.5)
-                if con is False:
-                    self.logger.error('Cannot connect to readback pv: %s' % config[pname]['readback'])
-                    return False
-                if not 'tol' in config[pname].keys():
-                    self.logger.error('Tolerance for readback values not defined')
-                    return False
-            self.logger.info('Adding PV: %s to actuator list' % pname)
-            self.actuators[pname]={'PV':pv,'val':val,'PVRB':pvrb,'tol':tol}
+            if 'Readback' in self.actuators[key].keys():
+                if len(self.actuators[key]['Readback']) > 3 :
+                    pvrb = PV(self.actuators[key]['Readback'])
+                    con = pvrb.wait_for_connection(timeout=0.5)
+                    if con is False:
+                        self.logger.error('Cannot connect to readback pv: %s' % self.actuators[key]['Readback'])
+                        return False               
+                    if not 'Tolerance' in self.actuators[key].keys():
+                        self.logger.error('Tolerance for actuator readback not defined. Setting it to 0.')
+                        self.actuators[key]['Tolerance']=0
+            self.actuators[key]['PVRB']=pvrb 
+            self.logger.info('Adding PV: %s to actuator list' % key)
 
         self.isActuator = True
-        self.nsteps = nsteps
         self.isteps=-1
         self.status = 0   # initialized
         self.busy=False
         return True
+
 
     def setActuator(self):
         """
@@ -128,8 +134,10 @@ class ActuatorPV:
         """
         if self.isteps<0:
             return
-        for ele in self.actuators:
-            ele['pv'].put(ele['val'][self.isteps])
+        
+        for key in self.actuators.keys():
+            print('#### Actuator:', key,' set to',self.actuators[key]['val'][self.isteps], '(Step:',self.isteps+1,'of',self.nsteps,')')
+            self.actuators[key]['PV'].put(self.actuators[key]['val'][self.isteps])
 
     def checkReadback(self):
         """
@@ -137,11 +145,11 @@ class ActuatorPV:
         :return: True if all are within the tolerance or False otherwise
         """
         valid = True
-        for ele in self.actuators:
-            if not ele['PVRB'] is None:
-                val=ele['PVRB'].get()
-                diff = np.abs(val- ele['val'][self.isteps])
-                if diff > ele['tol']:
+        for key in self.actuators.keys():
+            if not self.actuators[key]['PVRB'] is None:
+                val=self.actuators[key]['PVRB'].get()
+                diff = np.abs(val- self.actuators[key]['val'][self.isteps])
+                if diff > self.actuators[key]['Tolerance']:
                     valid = False
         return valid
 
@@ -150,12 +158,14 @@ class ActuatorPV:
         Function to launch thread for setting a new setvalue
         :return: True if a thread could be started, False otherwise
         """
+        if not self.isActuator:
+            return True
         if self.busy:
             return False
         self.busy=True
         self.hasTimeout = False
         self.isteps+=1
-        if self.isteps < self.nsteps and not self.doAbort and self.status >0:
+        if self.isteps < self.nsteps and not self.doAbort and self.status == 0:
             Thread(target=self.setthread).start()
             return True
         return False
@@ -168,6 +178,7 @@ class ActuatorPV:
         If a timeout has occured than the internal flag hasTimeout is set to True
         :return:
         """
+
         self.setActuator()
         waiting=True
         start=time.time()
@@ -179,6 +190,7 @@ class ActuatorPV:
             if self.checkReadback():
                 waiting = False
             if waiting:
+                print('checking for timeout')
                 dt = time.time()-start
                 if dt > self.timeout:
                     self.hasTimeout = True
@@ -187,4 +199,5 @@ class ActuatorPV:
                     time.sleep(0.1)
         if self.settle>0:
             time.sleep(self.settle)
+        self.settime=time.time()
         self.busy = False

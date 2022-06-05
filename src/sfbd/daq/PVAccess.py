@@ -26,7 +26,7 @@ class PVAccess:
             # get list of available channels for BSRead
         self.pvchannels = []
         self.refval = None
-        self.restore = True
+        self.hasRestore = False
 
     def store(self, channels=[]):
         """
@@ -35,6 +35,8 @@ class PVAccess:
         :return: success (True/False)
         """
         self.pvchannels.clear()
+        if len(channels) == 0:
+            return True
         pvchannels = [PV(pv) for pv in channels]
         con = [pv.wait_for_connection(timeout=0.5) for pv in pvchannels]
         status = True
@@ -47,9 +49,10 @@ class PVAccess:
 
         if status is False:
             self.logger.error('Cannot connect to requested channels. Abort PVAccess')
-            return status
-        self.logger.info('Initial acquisition of Pv channels for restoring them later')
+            return False
+        self.logger.info('Initial acquisition of PV channels for restoring them after measurement')
         self.refval = [pv.get() for pv in self.pvchannels]
+        self.hasRestore = True
         return status
 
     def restore(self):
@@ -57,10 +60,13 @@ class PVAccess:
         function to restore values, previously saved with the store function
         :return: None
         """
-        if not self.restore:
+        if not self.hasRestore:
             return
-        self.logger.info('Restoring PV Channels...')
+        if len(self.pvchannels) == 0:
+            return
+#        self.logger.info('Restoring PV Channels...')
         for i,pv in enumerate(self.pvchannels):
+            print('#### Actuator/Preaction',pv.pvname,' restored to',self.refval[i])
             pv.put(self.refval[i])
 
     def read(self):
@@ -78,7 +84,8 @@ class PVAccess:
         """
         for pv in self.pvchannels:
             if pv.pvname in values.keys():
-                pv.put(values[pv.name])
+                print('Setting PV',pv.pvname,'to value',values[pv.pvname])
+                pv.put(values[pv.pvname])
 
     def names(self):
         """
