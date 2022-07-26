@@ -1,105 +1,146 @@
 import datetime
 import re
 import numpy as np
-from snapshot.ca_core import Snapshot, SnapshotReqFile
+import yaml 
+from threading import Thread
+
+from snapshot.ca_core import Snapshot
 from snapshot.parser import parse_to_save_file, parse_from_save_file
+newVersion = True
+try:
+#    snapshot.parser.SnapshotReqFile import SnapshotReqFile
+    from snapshot.request_files.snapshot_req_file import SnapshotReqFile
+    from snapshot.request_files.snapshot_json_file import SnapshotJsonFile
+except:
+    newVersion = False
+    from snapshot.ca_core import SnapshotReqFile
+
 from epics import PV
 
+
 class snapshot:
-    def __init__(self,filename=None,savepath='/sf/data/applications/snapshot/'):        
+    def __init__(self, filename=None,
+                 savepath='/sf/data/applications/snapshot/'):
         self.filename = filename
-        print('Estbalishing snapshot with request file:',filename)
+        print('Estbalishing snapshot with request file:', filename)
         self.savepath = savepath
-        self.tolerance=0.0005  
-        self.pvnames=[]
-        self.pvs=[]
-        self.mppvnames=[]
-        self.mppvs=[]
-        self.machinepar=[]
-        self.message=''
+        self.tolerance = 0.0005
+        self.pvnames = []
+        self.pvs = []
+        self.mppvnames = []
+        self.mppvs = []
+        self.machinepar = []
+        self.message = ''
         if self.filename:
             self.openRequestFile(self.filename)
 
-
-    def openRequestFile(self,filename):
+    def openRequestFile(self, filename):
         self.filename = filename
-        self.rootname=self.filename.split('/')[-1]
-        req_file = SnapshotReqFile(self.filename)
-        pvs_list = req_file.read()
+        self.rootname = self.filename.split('/')[-1]
+
+        isReq = True
+        if '.yaml' in filename:
+            isReq = False
+#        req_file = SnapshotReqFile(path=str(self.filename))
+
+        if newVersion:
+            if '.yaml' in filename:
+                req_file = SnapshotJsonFile(path=str(self.filename))
+            else:
+                req_file = SnapshotReqFile(path=str(self.filename))
+            pvs_list= req_file.read()[0]
+            print('PV List:-------------------------')
+            for i in range(len(pvs_list)):
+                print(pvs_list[i])
+            print(req_file.read()[1])
+        else:
+            if '.yaml' in filename:
+                self.filename=None
+                self.rootname = None
+                print('YAML files not supported')
+                return
+            req_file = SnapshotReqFile(str(self.filename))
+            pvs_list = req_file.read()
+
+
         self.pvnames.clear()
         self.machinepar.clear()
         for ele in pvs_list:
-            if isinstance(ele,list):
-                self.pvnames=ele
-            elif isinstance(ele,dict):
+            if isinstance(ele, list):
+                self.pvnames = ele
+            elif isinstance(ele, dict):
                 if 'machine_params' in ele.keys():
-                    self.machinepar=ele['machine_params']        
-        self.connectPVs()
-        
+                    self.machinepar = ele['machine_params']
+        Thread(target=self.connectPVs).start()
+
     def connectPVs(self):
-        self.pvs=[PV(pv,auto_monitor=False) for pv in self.pvnames]
+        self.pvs = [PV(pv, auto_monitor=False) for pv in self.pvnames]
         con = [pv.wait_for_connection(timeout=1.5) for pv in self.pvs]
-        for i,val in enumerate(con):
+        for i, val in enumerate(con):
             if val is False:
                 print('Cannot connect to PV:', self.pvs[i].pvname)
-        self.mppvs=[PV(self.machinepar[key],auto_monitor=False) for key in self.machinepar.keys()]
+        if isinstance(self.machinepar,list):
+            self.mppvs = [PV(self.machinepar[key], auto_monitor=False) for key in self.machinepar]
+        else:
+            self.mppvs = [PV(self.machinepar[key], auto_monitor=False) for key in self.machinepar.keys()]
         con = [pv.wait_for_connection(timeout=1.5) for pv in self.mppvs]
-        for i,val in enumerate(con):
+        for i, val in enumerate(con):
             if val is False:
                 print('Cannot connect to mPV:', self.mppvs[i].pvname)
-        
-    def getSnapValues(self, force = True):
-        values={}
-        val =[pv.get(timeout=1.1,use_monitor=False) for pv in self.pvs]
-        for i,pv in enumerate(self.pvs):
+
+    def getSnapValues(self, force=True):
+        values = {}
+        val = [pv.get(timeout=0.6, use_monitor=False) for pv in self.pvs]
+        for i, pv in enumerate(self.pvs):
             if val[i] is None:
                 if force:
                     continue
                 else:
                     return False
             else:
-                values[pv.pvname]={"raw_name":pv.pvname,"val":val[i],"EGU":pv.units,"prec":pv.precision}
-        mvalues={}
-        val = [pv.get(timeout=1.1,use_monitor=False) for pv in self.mppvs]
-        for i,pv in enumerate(self.mppvs):
+                values[pv.pvname] = {
+                    "raw_name": pv.pvname, "val": val[i], "EGU": pv.units, "prec": pv.precision}
+        mvalues = {}
+        val = [pv.get(timeout=0.6, use_monitor=False) for pv in self.mppvs]
+        for i, pv in enumerate(self.mppvs):
             if val[i] is None:
                 if force:
                     continue
                 else:
-                    return False 
+                    return False
             else:
-                mvalues[pv.pvname]={"value":val[i],"units":pv.units,"precision":pv.precision}
-        return values,mvalues
- 
-            
-    def save(self,labels=[],comment="Generated by SFBD-Package",force=True):
+                mvalues[pv.pvname] = {"value": val[i],
+                                      "units": pv.units, "precision": pv.precision}
+        return values, mvalues
+
+    def save(self, labels=[], comment="Generated by SFBD-Package", force=True):
         if self.filename is None:
             self.message = 'No Request File Loaded'
             return False
 
-        val,mval = self.getSnapValues(force)
-        if isinstance(val,bool) and val == False:
+        val, mval = self.getSnapValues(force)
+        if isinstance(val, bool) and val == False:
             self.message = 'Unsuccesful reading of PV channels (unforced access)'
             return False
-        
+
         # construct file name
         datetag = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         root = self.rootname.split('.req')[0]
         files = self.savepath+root+'_'+datetag+'.snap'
         filel = self.savepath+root+'_latest.snap'
-        
-       
+
         # reshuffle from mval to keyword based machine values
-        mmval={}
+        mmval = {}
         for key in self.machinepar.keys():
             if self.machinepar[key] in mval.keys():
-                mmval[key]=mval[self.machinepar[key]]
+                mmval[key] = mval[self.machinepar[key]]
         # save file
-        parse_to_save_file(val, files, macros=None, symlink_path=filel,
-                           comment=comment,labels=[],req_file_name=self.rootname,machine_params=mmval)
+        parse_to_save_file(
+            val, files, macros=None, symlink_path=filel, comment=comment,
+            labels=[],
+            req_file_name=self.rootname, machine_params=mmval)
         self.message = 'Snapshot saved to '+files
         return True
-
 
     def restore(self,filename,refilter='',force=True):
         filepath=self.savepath+filename
@@ -111,10 +152,12 @@ class snapshot:
                 for key in ele.keys():
                     if prog.match(key):
                         res[key]=ele[key]['value']
-                        
+
         for pv in self.pvs:
             if pv.pvname in res.keys():
                 val=pv.get()
                 if val is None or np.abs(val-res[pv.pvname]) > self.tolerance:
                     pv.put(res[pv.pvname])
         self.message ='Snap restored'
+
+

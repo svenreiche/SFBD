@@ -85,12 +85,14 @@ class ActuatorPV:
             self.isActuator = False
             self.nsteps=0
             self.isteps=-1
+            self.settime=-1.
             return True
 
         self.actuators=actuator
         self.settle = settle
         self.timeout=timeout
         self.nsteps=nsteps
+        self.settime = 1e12 # enforce waiting for first actuator set procedure
 
         # get backup of actuator
         if not self.backup.store(self.actuators.keys()):
@@ -190,7 +192,6 @@ class ActuatorPV:
             if self.checkReadback():
                 waiting = False
             if waiting:
-                print('checking for timeout')
                 dt = time.time()-start
                 if dt > self.timeout:
                     self.hasTimeout = True

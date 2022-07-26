@@ -79,7 +79,12 @@ class Save:
             dset.attrs['system']=self.getSystem(name[0])
             dset.attrs['units']='unknown'
 
-    
+    def writeAnalysis(self,data,scanrun=1):
+        for key1 in data.keys():
+            for key2 in data[key1].keys():
+                dset=self.file.create_dataset('scan_%d/analysis/%s/%s' % (scanrun, key1, key2), 
+                                              data=data[key1][key2])
+
     def writeData(self, data, scanrun=1):
         if not 'Shot:ID' in data.keys():
             return
@@ -136,6 +141,8 @@ class Save:
         if tag == 'U':
             sys='Undulator'
         return sys
+
+
 
 
 

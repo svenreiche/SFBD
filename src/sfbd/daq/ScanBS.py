@@ -7,6 +7,8 @@ from threading import Thread
 
 import numpy as np
 
+from platform import python_version
+
 from PyQt5.QtCore import QObject, pyqtSignal
 
 # PSI libraries for bsread
@@ -18,6 +20,7 @@ import sfbd.daq.PVAccess as PVAccess
 import sfbd.daq.ActuatorPV as Actuator
 import sfbd.interface.snapshot as Snap
 import sfbd.interface.save as Save
+import sfbd.interface.load as Load
 
 # class for a fast recording of BS channels without any actuators
 class ScanBS(QObject):
@@ -56,18 +59,25 @@ class ScanBS(QObject):
         self.nsample = 0  # number of samples
         self.nstep = 0    # number of steps (0 = time recording)
         self.data = {}
+        self.derivedata = {}
         self.actuator = Actuator.ActuatorPV(self.logger) 
         self.preaction= PVAccess.PVAccess(self.logger)
         self.epicsread= PVAccess.PVAccess(self.logger)
         self.preactionVal={}
 
         if not snapfile:
-            snapfile='/sf/data/applications/snapshot/req/op/SF_settings.req'
+            version = python_version().split('.')[1]
+            if (int(version)) < 10:
+                snapfile='/sf/data/applications/snapshot/req/bd/SF_settings.req'
+            else:
+                snapfile='/sf/data/applications/snapshot/req/op/SF_settings.yaml'
+
         self.logger.info('Snapshot request file: %s' % snapfile)
         self.Snap = Snap.snapshot(snapfile)
         self.snapval={}
         self.snapmval={}
         self.Save=Save.Save(self.logger,self.program,self.version)
+        self.Load=Load.Load(self.logger,self.program,self.version)
 
     def setSnapshot(self,filename):
         self.logger.info('Snapshot request file: %s' % snapfile)
@@ -149,6 +159,7 @@ class ScanBS(QObject):
             self.logger.info('Data allocation for time recording')
 
         self.data.clear()
+        self.derivedata.clear()
         self.data['Shot:ID'] = np.ndarray(ndim, dtype='uint64')
         for ele in self.bschannels:
             print('BS Channel:',ele['name'])
@@ -171,9 +182,13 @@ class ScanBS(QObject):
         self.doAbort = False
         # start the thread
         Thread(target=self.runthread).start()
+        Thread(target=self.runSnapthread).start()
+        return True
+
+    def runSnapthread(self):
         self.snapval,self.snapmval=self.Snap.getSnapValues()
         self.logger.info('Snapshot acquired')
-        return True
+
 
     def runthread(self):
         """
@@ -293,11 +308,26 @@ class ScanBS(QObject):
         self.logger.info('Scan Thread is exiting...')
 
 
-    def save(self,derived={}):
+    def save(self):
         self.Save.open()
         self.Save.writeSnap(self.snapval)
-        self.Save.writeSnap(self.snapmval)
-        self.Save.writeData(self.data)        
+        # self.Save.writeSnap(self.snapmval)  Read back values not needed in saved file
+        self.Save.writeData(self.data) 
+        if len(self.derivedata.keys())>0:
+            self.Save.writeAnalysis(self.derivedata)
         self.Save.writeActuator(self.actuator)
         self.Save.close()
         return self.Save.filename
+
+    def load(self,filename):
+        self.Load.open(filename)
+        self.snapval=self.Load.loadSnap()
+        self.data = self.Load.loadData()
+        act = self.Load.loadActuator()
+        if len(act) == 0:
+            self.actuator.isActuator = False
+        else:
+            self.actuator.isActuator = True
+            self.actuator.actuators = act
+        self.Load.close()
+        self.sigterm.emit(1)
